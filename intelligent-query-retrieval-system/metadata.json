@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Intelligent Query-Retrieval System",
+  "description": "An AI-powered system to analyze documents and answer contextual questions. Paste the document text and your questions to receive structured, explainable answers based on the document's content.",
+  "requestFramePermissions": []
+}
