@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { QueryResult } from '../types';
 import { ChevronDownIcon } from './icons/Icons';
 
@@ -7,30 +7,40 @@ interface ResultsDisplayProps {
   results: QueryResult[];
 }
 
-const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results }) => {
+// Memoized ResultsDisplay component
+const ResultsDisplay: React.FC<ResultsDisplayProps> = React.memo(({ results }) => {
   return (
     <div className="w-full h-full">
-      <div className="space-y-4 h-full overflow-y-auto pr-2">
+      <div className="space-y-4 h-full overflow-y-auto pr-2 smooth-scroll">
         {results.map((result, index) => (
-          <ResultItem key={index} result={result} />
+          <ResultItem key={`${result.question}-${index}`} result={result} />
         ))}
       </div>
     </div>
   );
-};
+});
+
+ResultsDisplay.displayName = 'ResultsDisplay';
 
 interface ResultItemProps {
   result: QueryResult;
 }
 
-const ResultItem: React.FC<ResultItemProps> = ({ result }) => {
+// Memoized ResultItem component
+const ResultItem: React.FC<ResultItemProps> = React.memo(({ result }) => {
   const [isOpen, setIsOpen] = useState(true);
 
+  const toggleOpen = useCallback(() => {
+    setIsOpen(prev => !prev);
+  }, []);
+
   return (
-    <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+    <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden transition-all">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={toggleOpen}
         className="w-full flex justify-between items-center p-4 bg-slate-100 dark:bg-slate-700/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+        aria-expanded={isOpen}
+        type="button"
       >
         <h3 className="text-md font-semibold text-left text-slate-800 dark:text-slate-100">
           {result.question}
@@ -50,6 +60,8 @@ const ResultItem: React.FC<ResultItemProps> = ({ result }) => {
       )}
     </div>
   );
-};
+});
+
+ResultItem.displayName = 'ResultItem';
 
 export default ResultsDisplay;

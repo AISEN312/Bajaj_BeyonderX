@@ -1,13 +1,16 @@
 
 import React from 'react';
 
-const Loader: React.FC = () => {
+// Memoized Loader component since it never changes
+const Loader: React.FC = React.memo(() => {
   return (
     <svg
       className="animate-spin h-5 w-5 text-white"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
+      role="img"
+      aria-label="Loading"
     >
       <circle
         className="opacity-25"
@@ -24,6 +27,8 @@ const Loader: React.FC = () => {
       ></path>
     </svg>
   );
-};
+});
+
+Loader.displayName = 'Loader';
 
 export default Loader;

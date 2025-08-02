@@ -8,6 +8,35 @@ if (process.env.API_KEY) {
     ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 }
 
+// Simple in-memory cache for API responses to avoid redundant calls
+const responseCache = new Map<string, string[]>();
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+const cacheTimestamps = new Map<string, number>();
+
+// Clear expired cache entries
+const clearExpiredCache = () => {
+  const now = Date.now();
+  for (const [key, timestamp] of cacheTimestamps.entries()) {
+    if (now - timestamp > CACHE_EXPIRY) {
+      responseCache.delete(key);
+      cacheTimestamps.delete(key);
+    }
+  }
+};
+
+// Generate cache key from document and questions
+const generateCacheKey = (documentText: string, questions: string[]): string => {
+  const combined = documentText + questions.join('||');
+  // Simple hash function for cache key
+  let hash = 0;
+  for (let i = 0; i < combined.length; i++) {
+    const char = combined.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return hash.toString();
+};
+
 /**
  * The response schema tells the Gemini model to return a JSON object 
  * with a specific structure. In this case, we expect an object containing
@@ -29,6 +58,7 @@ const responseSchema = {
 
 /**
  * Analyzes the provided document text to answer a list of questions using the Gemini API.
+ * Includes caching to avoid redundant API calls for the same document and questions.
  * 
  * @param {string} documentText The full text of the document to be analyzed.
  * @param {string[]} questions An array of questions to be answered based on the document.
@@ -38,6 +68,26 @@ export const runQueryRetrieval = async (documentText: string, questions: string[
   if (!ai) {
     console.error("Gemini AI client is not initialized. Make sure API_KEY is set.");
     throw new Error("Gemini AI client not initialized.");
+  }
+
+  // Input validation
+  if (!documentText?.trim()) {
+    throw new Error("Document text cannot be empty.");
+  }
+  
+  if (!questions?.length) {
+    throw new Error("At least one question is required.");
+  }
+
+  // Clear expired cache entries periodically
+  clearExpiredCache();
+
+  // Check cache first
+  const cacheKey = generateCacheKey(documentText, questions);
+  const cachedResult = responseCache.get(cacheKey);
+  if (cachedResult) {
+    console.log("Returning cached result");
+    return cachedResult;
   }
   
   // Construct a detailed prompt for the AI model.
@@ -69,18 +119,28 @@ export const runQueryRetrieval = async (documentText: string, questions: string[
         responseMimeType: "application/json",
         responseSchema: responseSchema,
         temperature: 0.1, // Lower temperature for more factual, less creative answers
+        maxOutputTokens: 8192, // Optimize token usage
       },
     });
 
-    const responseText = response.text.trim();
+    const responseText = response.text?.trim();
     if (!responseText) {
       console.error("Gemini API returned an empty response.");
       return null;
     }
 
-    const parsedResponse = JSON.parse(responseText);
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse JSON response:", parseError);
+      throw new Error("Invalid JSON response from Gemini API.");
+    }
     
     if (parsedResponse && Array.isArray(parsedResponse.answers)) {
+      // Cache the successful result
+      responseCache.set(cacheKey, parsedResponse.answers);
+      cacheTimestamps.set(cacheKey, Date.now());
       return parsedResponse.answers;
     } else {
       console.error("Parsed response is not in the expected format:", parsedResponse);
@@ -88,8 +148,18 @@ export const runQueryRetrieval = async (documentText: string, questions: string[
     }
   } catch (error) {
     console.error("Error calling Gemini API:", error);
+    
+    // Provide more specific error messages
     if (error instanceof Error) {
+      if (error.message.includes('quota')) {
+        throw new Error("API quota exceeded. Please try again later.");
+      } else if (error.message.includes('unauthorized')) {
+        throw new Error("Invalid API key. Please check your API configuration.");
+      } else if (error.message.includes('rate limit')) {
+        throw new Error("Rate limit exceeded. Please wait a moment before trying again.");
+      } else {
         throw new Error(`Gemini API Error: ${error.message}`);
+      }
     }
     throw new Error("An unknown error occurred while communicating with the Gemini API.");
   }
