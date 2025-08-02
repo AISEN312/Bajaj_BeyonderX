@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { QueryResult } from './types';
 import { runQueryRetrieval } from './services/geminiService';
 import { DEFAULT_QUESTIONS, DOCUMENT_PLACEHOLDER } from './constants';
@@ -7,7 +7,8 @@ import ResultsDisplay from './components/ResultsDisplay';
 import Loader from './components/Loader';
 import { SparklesIcon, DocumentTextIcon, QuestionMarkCircleIcon, ExclamationTriangleIcon, InformationCircleIcon } from './components/icons/Icons';
 
-const App: React.FC = () => {
+// Memoized component for better performance
+const App: React.FC = React.memo(() => {
   const [documentText, setDocumentText] = useState<string>('');
   const [questions, setQuestions] = useState<string>(DEFAULT_QUESTIONS);
   const [results, setResults] = useState<QueryResult[] | null>(null);
@@ -15,15 +16,33 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isApiKeyMissing, setIsApiKeyMissing] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (!process.env.API_KEY) {
-      setIsApiKeyMissing(true);
-      setError("API Key is missing. Please set the API_KEY environment variable.");
-    }
+  // Memoize API key check to avoid repeated checks
+  const apiKeyStatus = useMemo(() => {
+    return !!process.env.API_KEY;
   }, []);
 
+  useEffect(() => {
+    if (!apiKeyStatus) {
+      setIsApiKeyMissing(true);
+      setError("API Key is missing. Please set the API_KEY environment variable.");
+    } else {
+      setIsApiKeyMissing(false);
+      setError(null);
+    }
+  }, [apiKeyStatus]);
+
+  // Memoize processed questions to avoid repeated processing
+  const processedQuestions = useMemo(() => {
+    return questions.split('\n').filter(q => q.trim() !== '');
+  }, [questions]);
+
+  // Memoize validation state
+  const isFormValid = useMemo(() => {
+    return !isApiKeyMissing && documentText.trim() !== '' && processedQuestions.length > 0;
+  }, [isApiKeyMissing, documentText, processedQuestions]);
+
   const handleAnalyze = useCallback(async () => {
-    if (isApiKeyMissing || !documentText.trim() || !questions.trim()) {
+    if (!isFormValid) {
       setError("Please provide the document text, at least one question, and ensure the API key is configured.");
       return;
     }
@@ -32,12 +51,10 @@ const App: React.FC = () => {
     setError(null);
     setResults(null);
 
-    const questionList = questions.split('\n').filter(q => q.trim() !== '');
-
     try {
-      const answers = await runQueryRetrieval(documentText, questionList);
+      const answers = await runQueryRetrieval(documentText, processedQuestions);
       if (answers) {
-        const queryResults: QueryResult[] = questionList.map((question, index) => ({
+        const queryResults: QueryResult[] = processedQuestions.map((question, index) => ({
           question,
           answer: answers[index] || "No answer found.",
         }));
@@ -52,7 +69,16 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [documentText, questions, isApiKeyMissing]);
+  }, [documentText, processedQuestions, isFormValid]);
+
+  // Memoized handlers for inputs
+  const handleDocumentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDocumentText(e.target.value);
+  }, []);
+
+  const handleQuestionsChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setQuestions(e.target.value);
+  }, []);
 
   return (
     <div className="min-h-screen text-slate-800 dark:text-slate-200">
@@ -94,7 +120,7 @@ const App: React.FC = () => {
               </h2>
               <textarea
                 value={documentText}
-                onChange={(e) => setDocumentText(e.target.value)}
+                onChange={handleDocumentChange}
                 placeholder={DOCUMENT_PLACEHOLDER}
                 className="w-full h-64 p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition duration-150 ease-in-out resize-y"
                 disabled={isLoading}
@@ -108,7 +134,7 @@ const App: React.FC = () => {
               </h2>
               <textarea
                 value={questions}
-                onChange={(e) => setQuestions(e.target.value)}
+                onChange={handleQuestionsChange}
                 placeholder="Enter one question per line..."
                 className="w-full h-64 p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition duration-150 ease-in-out resize-y"
                 disabled={isLoading}
@@ -117,7 +143,7 @@ const App: React.FC = () => {
 
             <button
               onClick={handleAnalyze}
-              disabled={isLoading || isApiKeyMissing || !documentText.trim() || !questions.trim()}
+              disabled={isLoading || !isFormValid}
               className="w-full flex items-center justify-center gap-2 px-6 py-3 border border-transparent text-base font-medium rounded-lg shadow-sm text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:bg-slate-400 disabled:dark:bg-slate-600 disabled:cursor-not-allowed transition-colors duration-200"
             >
               {isLoading ? (
@@ -166,6 +192,9 @@ const App: React.FC = () => {
       </main>
     </div>
   );
-};
+});
+
+// Set display name for debugging
+App.displayName = 'App';
 
 export default App;
